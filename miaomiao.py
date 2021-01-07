@@ -77,6 +77,8 @@ class MiaoMiao():
         self._headers = copy.deepcopy(REQ_HEADERS)
         self._headers['tk'] = tk
         self._headers['cookie'] = cookie
+        self._st = 0
+        self._stock = 0
 
     @staticmethod
     def _get(url, params=None, error_exit=True, **kwargs):
@@ -187,8 +189,31 @@ class MiaoMiao():
         :return:
         """
         # error_exit=False 忽略Server端使用5XX防爬策略
+        # 设置ecc header
+        # 此处使用小程序逻辑，即每次提交秒杀，先请求stock，获得时间戳和库存，供ECC_HS计算使用，但两次网络请求
+        # 容易造成效率低下问题。还有另一种猜测，即预先请求stock，获得时间戳和库存，保存供秒杀提交，该方案可以
+        # 专注秒杀，但如果服务器判断之前的时间戳不在秒杀开始时间点后，可能判断秒杀无效，故暂时没有考虑该方案。
+        self.ecc_hs_header_with_server_st(req_param["seckillId"], req_param["linkmanId"])
         return MiaoMiao._get(URLS['SEC_KILL'], params=req_param, error_exit=False, headers=self._headers,
                              proxies=proxies, verify=False)
+
+    def get_stock_and_st(self, seckill_id):
+        """
+        获取库存和服务器时间戳供ECC_HS计算使用
+        :return:st
+        """
+        req_param_list = {'id': seckill_id}
+        res_stock = MiaoMiao._get(URLS['CHECK_STOCK'], params=req_param_list, headers=self._headers, verify=False)
+        if '0000' != res_stock['code']:
+            print(res_stock['msg'])
+            exit(1)
+
+        datas = res_stock['data']
+        self._st = datas['st']
+        self._stock = datas['stock']
+        print('Current stock:' + self._stock)
+
+        return self._st
 
     def ecc_hs_header(self, seckill_id, linkman_id):
         """
@@ -202,6 +227,22 @@ class MiaoMiao():
         """
         _ori_md5 = md5(
             f'{seckill_id}{linkman_id}{int(datetime.datetime.now().timestamp() * 1000)}'.encode('utf-8')).hexdigest()
+        _md5_salt = md5(f'{_ori_md5}{ECC_HS_SALT}'.encode('utf-8'))
+        self._headers['ecc-hs'] = _md5_salt.hexdigest()
+
+    def ecc_hs_header_with_server_st(self, seckill_id, linkman_id):
+        """
+        构造ecc-hs header
+        :param seckill_id: 疫苗ID
+        :param linkman_id: 接种人ID
+        :return: ecc-hs header
+
+         salt = 'ux$ad70*b';
+         md5Str = utilMd5.hexMD5(utilMd5.hexMD5(ms_id + defaultMember.id + st) + salt)
+        """
+        self._st = self.get_stock_and_st(seckill_id)
+        _ori_md5 = md5(
+            f'{seckill_id}{linkman_id}{self._st}'.encode('utf-8')).hexdigest()
         _md5_salt = md5(f'{_ori_md5}{ECC_HS_SALT}'.encode('utf-8'))
         self._headers['ecc-hs'] = _md5_salt.hexdigest()
 

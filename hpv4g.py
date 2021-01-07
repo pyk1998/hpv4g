@@ -33,11 +33,10 @@ def sec_kill_task(miao_miao, req_param, proxy=None):
     执行秒杀操作
     :return:
     """
-    # 设置ecc header
-    miao_miao.ecc_hs_header(req_param["seckillId"], req_param["linkmanId"])
+
     _start_time = req_param['startTimeUnx']
     # 距秒杀开始300ms 开始执行请求
-    while _start_time - int(datetime.datetime.now().timestamp() * 1000) > 300:
+    while _start_time - miao_miao.get_stock_and_st(req_param["seckillId"]) > 300:
         pass
     global KILL_FLAG
     while not KILL_FLAG:
